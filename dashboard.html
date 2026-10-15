@@ -1,0 +1,35 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ReplyDesk Dashboard</title><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon-192.png"><meta name="theme-color" content="#0f766e"><style>:root{--bg:#f6f7f9;--card:#fff;--text:#1a1d21;--muted:#6b7280;--accent:#0f766e;--line:#e5e7eb}
+@media (prefers-color-scheme:dark){:root{--bg:#101214;--card:#1a1d21;--text:#eceff2;--muted:#9aa3ad;--accent:#2dd4bf;--line:#2b3037}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;line-height:1.6;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.w{max-width:720px;margin:0 auto;padding:20px 16px}h1{font-size:32px;line-height:1.2;margin:.3em 0}h2{margin-top:1.6em}
+.btn{display:inline-block;background:var(--accent);color:#fff;border:0;border-radius:10px;padding:13px 22px;font-size:16px;font-weight:600;text-decoration:none;cursor:pointer}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:10px 0}.muted{color:var(--muted)}
+input,textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg);color:var(--text);font:inherit;font-size:16px;margin:4px 0 12px}label{font-size:14px;font-weight:600} .lead{border-left:4px solid var(--accent);padding-left:10px;margin:8px 0}.lead.handoff{border-color:#b45309}</style></head><body><div class="w">
+<h1 style="font-size:24px">ReplyDesk Dashboard</h1>
+<div id="login" class="card"><label>Your license key (from your purchase email)</label><input id="lk" placeholder="XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX" autocomplete="off"><button class="btn" id="go">Sign in</button><p id="lerr" style="color:#dc2626"></p></div>
+<div id="app" hidden>
+<div class="card"><b>Your customer link</b><p><a id="lnk" href="#" target="_blank"></a></p><button class="btn" id="cp" style="padding:8px 14px;font-size:14px">Copy link</button></div>
+<h2>Business details</h2><div class="card">
+<label>Link name (letters/numbers)</label><input id="slug" placeholder="smile-clinic">
+<label>Business name</label><input id="name"><label>Business type</label><input id="type" placeholder="Dental clinic, hair salon...">
+<label>Address</label><input id="address"><label>Opening hours</label><textarea id="hours" rows="2" placeholder="Mon-Fri 9:00-18:00, Sat 9:00-13:00"></textarea>
+<label>Services and prices</label><textarea id="services" rows="4" placeholder="Checkup $30&#10;Cleaning $50"></textarea>
+<label>Payment options</label><input id="payments"><label>Emergency / handoff phone</label><input id="emergency">
+<label>Other notes (policies, FAQs)</label><textarea id="notes" rows="3"></textarea>
+<button class="btn" id="save">Save</button> <span id="msg" class="muted"></span></div>
+<h2>Bookings and handoffs</h2><div id="leads" class="muted">Nothing yet.</div>
+<p><a href="#" id="out">Sign out</a></p></div></div>
+<script>
+const $=id=>document.getElementById(id);let key=localStorage.getItem('lk')||'';
+const F=['slug','name','type','hours','address','services','payments','notes','emergency'];
+async function api(p,o={}){const r=await fetch(p,{...o,headers:{'content-type':'application/json','x-license-key':key}});const d=await r.json();if(!r.ok)throw new Error(d.error||'Error');return d}
+function link(s){const u=s?location.origin+'/c/'+s:'';$('lnk').textContent=u||'Save your details to get your link';$('lnk').href=u||'#'}
+async function leads(){try{const d=await api('/api/leads');if(!d.leads.length)return;$('leads').innerHTML='';d.leads.forEach(l=>{const e=document.createElement('div');e.className='lead '+l.type;e.textContent=(l.type==='booking'?'Booking: ':'Needs a human: ')+l.info+'  ('+new Date(l.at).toLocaleString()+')';$('leads').appendChild(e)})}catch(e){}}
+async function load(){try{const d=await api('/api/config');$('login').hidden=true;$('app').hidden=false;localStorage.setItem('lk',key);const c=d.config||{};F.forEach(k=>$(k).value=c[k]||'');link(c.slug);leads()}catch(e){$('login').hidden=false;$('app').hidden=true;$('lerr').textContent=key?e.message:''}}
+$('go').onclick=()=>{key=$('lk').value.trim();load()};
+$('save').onclick=async()=>{const b={};F.forEach(k=>b[k]=$(k).value);$('msg').textContent='Saving...';try{const d=await api('/api/config',{method:'POST',body:JSON.stringify(b)});link(d.config.slug);$('msg').textContent='Saved'}catch(e){$('msg').textContent=e.message}};
+$('cp').onclick=()=>{if($('lnk').href.includes('/c/'))navigator.clipboard.writeText($('lnk').href)};
+$('out').onclick=e=>{e.preventDefault();localStorage.removeItem('lk');key='';load()};
+if(key)load();if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+</script></body></html>

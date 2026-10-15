@@ -1,0 +1,52 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Assistant</title><link rel="icon" href="/icon-192.png"><meta name="theme-color" content="#0f766e">
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#1a1d21;--muted:#6b7280;--accent:#0f766e;--bot:#fff;--line:#e5e7eb;--warn:#b45309;--ok:#047857}
+@media (prefers-color-scheme:dark){:root{--bg:#101214;--card:#1a1d21;--text:#eceff2;--muted:#9aa3ad;--accent:#2dd4bf;--bot:#1f2328;--line:#2b3037;--warn:#fbbf24;--ok:#34d399}}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;display:flex;flex-direction:column;max-width:720px;margin:0 auto;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+header{padding:12px 16px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);background:var(--card)}
+.av{width:38px;height:38px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700}
+header h1{font-size:16px;margin:0;flex:1}header small{color:var(--muted);display:block;font-weight:400;font-size:12px}
+header button{border:1px solid var(--line);background:none;color:var(--text);border-radius:8px;padding:6px 9px;font-size:15px}header button.act{background:var(--accent);color:#fff;border-color:var(--accent)}
+#msgs{flex:1;overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:8px}
+.m{max-width:85%;padding:9px 13px;border-radius:16px;line-height:1.55;font-size:15px;white-space:pre-wrap;word-wrap:break-word}
+.bot{background:var(--bot);border:1px solid var(--line);align-self:flex-start}.me{background:var(--accent);color:#fff;align-self:flex-end}
+.tag{align-self:flex-start;font-size:13px;padding:8px 12px;border-radius:12px;border:1px dashed var(--ok);color:var(--ok);max-width:85%}.tag.h{border-color:var(--warn);color:var(--warn)}
+#chips{display:flex;gap:6px;overflow-x:auto;padding:0 12px 8px}#chips button{flex:none;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;padding:6px 12px;font-size:13px}
+form{display:flex;gap:8px;padding:10px 12px;background:var(--card);border-top:1px solid var(--line)}
+form input{flex:1;border:1px solid var(--line);border-radius:999px;padding:11px 14px;background:var(--bg);color:var(--text);font-size:16px;min-width:0}
+form button{border:0;background:var(--accent);color:#fff;border-radius:999px;padding:0 18px;font-size:15px}form button:disabled{opacity:.5}
+form #mic{background:var(--bg);border:1px solid var(--line);color:var(--text);padding:0 13px;font-size:18px}form #mic.on{background:#dc2626;color:#fff;border-color:#dc2626}
+</style></head><body>
+<header><div class="av" id="av">AI</div><h1 id="title">Assistant<small>AI receptionist</small></h1><button id="snd" type="button" class="act" title="Read replies aloud">🔊</button><button id="liv" type="button" title="Hands-free voice chat">🎧</button></header>
+<div id="msgs"></div><div id="chips"></div>
+<form id="f"><button id="mic" type="button" title="Speak">🎤</button><input id="inp" autocomplete="off" placeholder="Type your message..."><button id="send">Send</button></form>
+<script>
+const slug=location.pathname.split('/')[2]||'',msgs=document.getElementById('msgs'),inp=document.getElementById('inp'),send=document.getElementById('send'),mic=document.getElementById('mic'),snd=document.getElementById('snd'),liv=document.getElementById('liv');
+const PH='Type your message...',SR=window.SpeechRecognition||window.webkitSpeechRecognition,L='en-US';
+const hist=[];let busy=false,tts=true,live=false,rec=null,listening=false,name='this business';
+if(!SR){mic.style.display='none';liv.style.display='none'}
+function add(c,t){const d=document.createElement('div');d.className=c;d.textContent=t;msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight;return d}
+function render(el,t){const g=[...t.matchAll(/\[\[(booking|handoff):\s*([^\]]*)\]\]/g)];el.textContent=t.replace(/\[\[[^\]]*\]\]?/g,'').trim()||'...';return g}
+function tags(g){g.forEach(t=>{const h=t[1]==='handoff';add('tag'+(h?' h':''),(h?'A team member will follow up: ':'Booking request sent: ')+t[2].trim())})}
+function speak(t,done){if(!tts||!('speechSynthesis' in window)){done&&done();return}speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu,''));u.lang=L;u.onend=u.onerror=()=>done&&done();speechSynthesis.speak(u)}
+function sync(){liv.classList.toggle('act',live)}
+function listen(){if(!SR||busy||listening)return;try{speechSynthesis.cancel()}catch(e){}rec=new SR();rec.lang=L;rec.interimResults=true;let fin='';
+rec.onstart=()=>{listening=true;mic.classList.add('on');inp.placeholder='Listening...'};
+rec.onresult=e=>{let t='';for(const r of e.results)t+=r[0].transcript;fin=t;inp.value=t};
+rec.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){live=false;sync();add('m bot','Microphone access is blocked. Enable it in your browser settings or type instead.')}};
+rec.onend=()=>{listening=false;mic.classList.remove('on');inp.placeholder=PH;if(fin.trim())ask(fin);else if(live)setTimeout(listen,400)};try{rec.start()}catch(e){listening=false}}
+mic.onclick=()=>{if(listening){live=false;sync();rec&&rec.stop()}else listen()};
+liv.onclick=()=>{live=!live;sync();if(live){if(!tts){tts=true;snd.classList.add('act')}listen()}else{try{rec&&rec.abort()}catch(e){}speechSynthesis.cancel()}};
+snd.onclick=()=>{tts=!tts;snd.classList.toggle('act',tts);if(!tts)speechSynthesis.cancel()};
+async function ask(text){if(busy||!text.trim())return;try{speechSynthesis.cancel()}catch(e){}busy=true;send.disabled=true;document.getElementById('chips').style.display='none';
+add('m me',text);hist.push({role:'user',content:text});inp.value='';const el=add('m bot','Typing...');
+try{const r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({slug,messages:hist})});const d=await r.json();if(!r.ok||!d.text)throw new Error(d.error||'err');
+hist.push({role:'assistant',content:d.text});tags(render(el,d.text));speak(el.textContent,()=>setTimeout(()=>{if(live)listen()},300))}
+catch(e){el.textContent=e.message&&e.message!=='err'&&e.message!=='Failed to fetch'?e.message:'Sorry, something went wrong. Please try again.';hist.pop();live=false;sync()}
+finally{busy=false;send.disabled=false;msgs.scrollTop=msgs.scrollHeight}}
+document.getElementById('f').onsubmit=e=>{e.preventDefault();ask(inp.value)};
+fetch('/api/chat?slug='+encodeURIComponent(slug)).then(r=>r.json()).then(d=>{if(d.name){name=d.name;document.title=name;document.getElementById('title').firstChild.textContent=name;document.getElementById('av').textContent=name[0].toUpperCase()}
+add('m bot','Hi! Welcome to '+name+'. How can I help you today?');['What are your opening hours?',"I'd like to book an appointment",'Where are you located?','How much does it cost?'].forEach(q=>{const b=document.createElement('button');b.type='button';b.textContent=q;b.onclick=()=>ask(q);document.getElementById('chips').appendChild(b)})}).catch(()=>add('m bot','This assistant is not available.'));
+</script></body></html>
