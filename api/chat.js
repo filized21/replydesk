@@ -2,6 +2,33 @@ const { r } = require('../lib/redis');
 const { valid } = require('../lib/gumroad');
 const buildPrompt = require('../lib/prompt');
 const CAP = parseInt(process.env.MONTHLY_CAP || '1500', 10);
+
+// Uses OpenRouter if OPENROUTER_API_KEY is set, otherwise Anthropic (ANTHROPIC_API_KEY).
+async function callModel(system, msgs) {
+  if (process.env.OPENROUTER_API_KEY) {
+    const x = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + process.env.OPENROUTER_API_KEY, 'X-Title': 'ReplyDesk' },
+      body: JSON.stringify({
+        model: process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4.5',
+        max_tokens: 500,
+        messages: [{ role: 'system', content: system }, ...msgs]
+      })
+    });
+    const d = await x.json().catch(() => ({}));
+    if (!x.ok) throw new Error('upstream');
+    return (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '';
+  }
+  const x = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: process.env.CLAUDE_MODEL || 'claude-sonnet-5-5', max_tokens: 500, system, messages: msgs })
+  });
+  const d = await x.json().catch(() => ({}));
+  if (!x.ok) throw new Error('upstream');
+  return (d.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+}
+
 module.exports = async (req, res) => {
   try {
     const slug = String((req.query && req.query.slug) || (req.body && req.body.slug) || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
@@ -12,6 +39,7 @@ module.exports = async (req, res) => {
     if (req.method === 'GET') return res.json({ name: cfg.name });
     if (req.method !== 'POST') return res.status(405).end();
     if (!(await valid(await r('GET', 'lk:' + h)))) return res.status(403).json({ error: 'This assistant is currently inactive.' });
+    if (!process.env.OPENROUTER_API_KEY && !process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'The assistant is not configured yet.' });
     const ip = String(req.headers['x-forwarded-for'] || 'x').split(',')[0].trim();
     const k = 'rl:' + ip + ':' + Math.floor(Date.now() / 60000);
     if ((await r('INCR', k)) === 1) await r('EXPIRE', k, 90);
@@ -21,14 +49,10 @@ module.exports = async (req, res) => {
     const msgs = (req.body.messages || []).slice(-20).map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '').slice(0, 1500) }));
     while (msgs.length && msgs[0].role !== 'user') msgs.shift();
     if (!msgs.length) return res.status(400).json({ error: 'Bad request.' });
-    const x = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: process.env.CLAUDE_MODEL || 'claude-sonnet-5-5', max_tokens: 500, system: buildPrompt(cfg), messages: msgs })
-    });
-    const d = await x.json();
-    if (!x.ok) return res.status(502).json({ error: 'The assistant is unavailable right now.' });
-    const text = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+    let text;
+    try { text = await callModel(buildPrompt(cfg), msgs); }
+    catch (e) { return res.status(502).json({ error: 'The assistant is unavailable right now.' }); }
+    if (!text) return res.status(502).json({ error: 'The assistant is unavailable right now.' });
     for (const m of text.matchAll(/\[\[(booking|handoff):\s*([^\]]*)\]\]/g)) {
       await r('LPUSH', 'leads:' + h, JSON.stringify({ type: m[1], info: m[2].trim(), at: new Date().toISOString() }));
       await r('LTRIM', 'leads:' + h, 0, 199);
